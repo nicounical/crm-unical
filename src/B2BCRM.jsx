@@ -3,12 +3,41 @@ import { Search, Download, Trash2, Plus, Globe, Mail, Send, Edit, X, TrendingUp,
 
 const BLOCKED_EMAIL = 'info@events-barcelona.com';
 
+// Mapa país → plantilla de idioma para auto-envío
+const COUNTRY_TEMPLATE_MAP = {
+  'US': 'template_en',
+  'UK': 'template_en',
+  'AU': 'template_en',
+  'DE': 'template_de',
+  'FR': 'template_fr',
+  'IT': 'template_it',
+  'NL': 'template_nl',
+  'BE': 'template_nl',
+  'CH': 'template_de',
+  'SE': 'template_en',
+  'NO': 'template_en',
+  'DK': 'template_en',
+  'JP': 'template_en',
+  'PT': 'template_es',
+};
+
 const COUNTRIES = [
-  { code: 'PT', name: 'Portugal', flag: '🇵🇹' },
-  { code: 'IT', name: 'Italia', flag: '🇮🇹' },
+  // Mercados principales MICE Barcelona (mayor volumen de eventos)
+  { code: 'US', name: 'Estados Unidos', flag: '🇺🇸' },
+  { code: 'DE', name: 'Alemania', flag: '🇩🇪' },
   { code: 'FR', name: 'Francia', flag: '🇫🇷' },
   { code: 'UK', name: 'Reino Unido', flag: '🇬🇧' },
-  { code: 'DE', name: 'Alemania', flag: '🇩🇪' }
+  { code: 'IT', name: 'Italia', flag: '🇮🇹' },
+  { code: 'NL', name: 'Países Bajos', flag: '🇳🇱' },
+  { code: 'CH', name: 'Suiza', flag: '🇨🇭' },
+  { code: 'BE', name: 'Bélgica', flag: '🇧🇪' },
+  // Mercados secundarios con alta actividad en Barcelona
+  { code: 'SE', name: 'Suecia', flag: '🇸🇪' },
+  { code: 'NO', name: 'Noruega', flag: '🇳🇴' },
+  { code: 'DK', name: 'Dinamarca', flag: '🇩🇰' },
+  { code: 'PT', name: 'Portugal', flag: '🇵🇹' },
+  { code: 'JP', name: 'Japón', flag: '🇯🇵' },
+  { code: 'AU', name: 'Australia', flag: '🇦🇺' },
 ];
 
 const SECTORS = [
@@ -33,17 +62,47 @@ const PIPELINE_STAGES = [
 
 const LEAD_SCORE_CRITERIA = {
   sector: { 'PCO (Professional Conference Organisers)': 30, 'DMC (Destination Management Companies)': 30, 'MICE': 25, 'Event Management Companies': 25 },
-  country: { 'IT': 25, 'FR': 25, 'DE': 20, 'UK': 20, 'PT': 15 },
+  country: { 'US': 30, 'CH': 30, 'DE': 25, 'NL': 25, 'FR': 25, 'UK': 25, 'IT': 20, 'BE': 20, 'SE': 20, 'NO': 15, 'DK': 15, 'JP': 15, 'AU': 15, 'PT': 10 },
   eventsPerYear: { '10+': 30, '5-10': 20, '2-5': 10, '1': 5 },
   companySize: { 'large': 20, 'medium': 15, 'small': 10 }
 };
 
 const DEFAULT_TEMPLATES = [
   {
-    id: 'template_1',
-    name: 'Presentación Inicial - Español',
-    subject: 'Colaboración para eventos corporativos en España',
-    body: 'Estimado/a equipo de {company},\n\nMe llamo Nico y escribo desde Unical Graphic, empresa especializada en rotulación de vehículos y branding corporativo para flotas en Barcelona.\n\nHe visto que su empresa organiza eventos corporativos, y me gustaría explorar una posible colaboración para sus eventos en España.\n\nSaludos cordiales,\n\nNico\nBusiness Development\nUnical Graphic\nnico@unical.es'
+    id: 'template_es',
+    name: 'Presentación Genérica - Español',
+    subject: 'Partner 360º para ferias, congresos y eventos en España',
+    body: 'Buenos días,\n\nSoy Nicolas Benitez, encargado de desarrollo de Unical Graphic. Nos gustaría presentarnos como partner 360º para agencias de publicidad/marketing que necesiten equipo de diseño, producción e instalación en ferias, congresos, eventos, decoración interior, exterior, imagen corporativa y rotulación de flotas… con cobertura en todo el territorio español y países de la Unión Europea, donde realizamos la producción de muchos eventos, congresos y ferias.\n\nQué hacemos:\n• Organización de ferias y congresos: photocalls, rígidos, banderolas, textiles, vinilos, letras corpóreas.\n• Producción: impresión digital gran formato (lonas, vinilos, textiles, rígidos), PLV/displays, totems, elementos de branding y soportes a medida.\n• Branding para franquicias: imagen corporativa, diseño interior y exterior.\n• Stands: modulares y a medida, desde concepto a entrega llave en mano.\n• Señalética integral: direccional, acreditaciones, safety y ambientación del recinto.\n• Rotulación de vehículos y flotas (para activaciones y logística de marca).\n• Decoración de interiores/imagen corporativa para espacios efímeros o permanentes.\n• Decoración de oficinas (interior y exterior).\n• Hostelería & Restaurantes: renovaciones, obras, reformas decorativas con vinilos de revestimiento y texturas.\n• Colegios & oficinas: vinilos, láminas solares, pictos, señalética y mucho más.\n\nCatálogo general: https://drive.google.com/file/d/14os32vAe747lEStnwy8Zl7tlyFU6kLLb/view?usp=sharing\nCatálogo renovación hoteles y restaurantes: https://drive.google.com/file/d/1uf2VsEVLg7G-yjJqi4S8ttHmtrXgyRIa/view?usp=drive_link\n\nSi te encaja explorar algún tipo de servicio o necesidad, propongo una llamada de 10–15\'\' para revisar cómo encajamos. Nuestro objetivo es convertirnos en un partner de confianza para empresas como la vuestra.\n\nQuedo atento. Gracias por tu tiempo,\n\nNico\nNicolas Benitez — Business Development\nUnical Graphic · nico@unical.es'
+  },
+  {
+    id: 'template_en',
+    name: 'Generic Presentation - English',
+    subject: '360° Partner for Fairs, Congresses & Events in Spain',
+    body: 'Good morning,\n\nMy name is Nicolas Benitez, Head of Business Development at Unical Graphic. We would like to introduce ourselves as a 360° partner for advertising/marketing agencies that need a design, production and installation team for fairs, congresses, events, interior and exterior decoration, corporate image and fleet branding — covering the entire Spanish territory and EU countries, where we carry out production for many events, congresses and fairs.\n\nWhat we do:\n• Fair and congress organisation: photocalls, rigid displays, banners, textiles, vinyl, built-up lettering.\n• Production: large format digital printing (banners, vinyls, textiles, rigid materials), POS/displays, totems, branding elements and custom supports.\n• Franchise branding: corporate image, interior and exterior design.\n• Stands: modular and custom-built, from concept to turnkey delivery.\n• Comprehensive signage: directional, accreditations, safety and venue dressing.\n• Vehicle and fleet branding (for brand activations and logistics).\n• Interior decoration/corporate image for ephemeral or permanent spaces.\n• Office decoration (interior and exterior).\n• Hospitality & Restaurants: renovations, decorative refurbishments using coating vinyls and textures.\n• Schools & offices: vinyls, solar films, pictograms, signage and much more.\n\nGeneral catalogue: https://drive.google.com/file/d/14os32vAe747lEStnwy8Zl7tlyFU6kLLb/view?usp=sharing\nHotel & restaurant renovation catalogue: https://drive.google.com/file/d/1uf2VsEVLg7G-yjJqi4S8ttHmtrXgyRIa/view?usp=drive_link\n\nIf this fits with any service or need you have, I propose a 10–15 min call to review how we can work together. Our goal is to become a trusted partner for companies like yours.\n\nLooking forward to hearing from you. Thank you for your time,\n\nNico\nNicolas Benitez — Business Development\nUnical Graphic · nico@unical.es'
+  },
+  {
+    id: 'template_de',
+    name: 'Allgemeine Vorstellung - Deutsch',
+    subject: '360°-Partner für Messen, Kongresse und Events in Spanien',
+    body: 'Guten Morgen,\n\nmein Name ist Nicolas Benitez, zuständig für die Geschäftsentwicklung bei Unical Graphic. Wir möchten uns als 360°-Partner für Werbe-/Marketingagenturen vorstellen, die ein Team für Design, Produktion und Installation bei Messen, Kongressen, Events, Innen- und Außendekoration, Corporate Identity und Flottenbeklebung benötigen — mit Abdeckung im gesamten spanischen Gebiet und EU-Ländern, wo wir die Produktion für viele Events, Kongresse und Messen übernehmen.\n\nWas wir machen:\n• Messen und Kongressorganisation: Photocalls, Hartschaumtafeln, Banner, Textilien, Folien, Leuchtbuchstaben.\n• Produktion: Digitaldruck im Großformat (Planen, Folien, Textilien, Hartschaumtafeln), POS/Displays, Totems, Branding-Elemente und Sonderbauten.\n• Franchise-Branding: Corporate Identity, Innen- und Außengestaltung.\n• Messestände: modular und individuell, vom Konzept bis zur schlüsselfertigen Übergabe.\n• Umfassendes Beschilderungssystem: Wegweisung, Akkreditierungen, Sicherheit und Raumgestaltung.\n• Fahrzeug- und Flottenbeklebung (für Markenaktivierungen und -logistik).\n• Innendekoration/Corporate Identity für ephemere oder dauerhafte Räume.\n• Bürodekoration (innen und außen).\n• Hotellerie & Restaurants: Renovierungen, dekorative Umgestaltungen mit Beschichtungsfolien und Texturen.\n• Schulen & Büros: Folien, Sonnenschutzfolien, Piktogramme, Beschilderung und vieles mehr.\n\nHauptkatalog: https://drive.google.com/file/d/14os32vAe747lEStnwy8Zl7tlyFU6kLLb/view?usp=sharing\nKatalog Hotel- und Restaurantrenovierung: https://drive.google.com/file/d/1uf2VsEVLg7G-yjJqi4S8ttHmtrXgyRIa/view?usp=drive_link\n\nFalls dies zu einem Ihrer Bedürfnisse passt, schlage ich ein 10–15-minütiges Gespräch vor. Unser Ziel ist es, ein vertrauenswürdiger Partner für Ihr Unternehmen zu werden.\n\nIch freue mich auf Ihre Rückmeldung. Vielen Dank für Ihre Zeit,\n\nNico\nNicolas Benitez — Business Development\nUnical Graphic · nico@unical.es'
+  },
+  {
+    id: 'template_fr',
+    name: 'Présentation Générique - Français',
+    subject: 'Partenaire 360° pour salons, congrès et événements en Espagne',
+    body: 'Bonjour,\n\nJe m\'appelle Nicolas Benitez, responsable du développement commercial chez Unical Graphic. Nous souhaitons nous présenter comme partenaire 360° pour les agences de publicité/marketing qui ont besoin d\'une équipe de conception, production et installation pour salons, congrès, événements, décoration intérieure et extérieure, image de marque et covering de flotte — avec une couverture sur tout le territoire espagnol et les pays de l\'Union Européenne.\n\nCe que nous faisons :\n• Organisation de salons et congrès : photocalls, supports rigides, banderoles, textiles, vinyles, lettres en relief.\n• Production : impression numérique grand format (bâches, vinyles, textiles, rigides), PLV/displays, totems, éléments de branding et supports sur mesure.\n• Branding pour franchises : image de marque, conception intérieure et extérieure.\n• Stands : modulaires et sur mesure, du concept à la livraison clé en main.\n• Signalétique intégrale : directionnelle, accréditations, sécurité et habillage de site.\n• Covering de véhicules et flottes (pour les activations de marque et la logistique).\n• Décoration intérieure/image de marque pour des espaces éphémères ou permanents.\n• Décoration de bureaux (intérieur et extérieur).\n• Hôtellerie & Restauration : rénovations, réaménagements décoratifs avec vinyles de revêtement et textures.\n• Écoles & bureaux : vinyles, films solaires, pictogrammes, signalétique et bien plus.\n\nCatalogue général : https://drive.google.com/file/d/14os32vAe747lEStnwy8Zl7tlyFU6kLLb/view?usp=sharing\nCatalogue rénovation hôtels et restaurants : https://drive.google.com/file/d/1uf2VsEVLg7G-yjJqi4S8ttHmtrXgyRIa/view?usp=drive_link\n\nSi cela correspond à un besoin de votre côté, je vous propose un appel de 10–15 min. Notre objectif est de devenir un partenaire de confiance pour votre entreprise.\n\nDans l\'attente de votre réponse. Merci pour votre temps,\n\nNico\nNicolas Benitez — Business Development\nUnical Graphic · nico@unical.es'
+  },
+  {
+    id: 'template_it',
+    name: 'Presentazione Generica - Italiano',
+    subject: 'Partner 360° per fiere, congressi ed eventi in Spagna',
+    body: 'Buongiorno,\n\nMi chiamo Nicolas Benitez, responsabile dello sviluppo commerciale di Unical Graphic. Ci farebbe piacere presentarci come partner 360° per agenzie di pubblicità/marketing che necessitano di un team di design, produzione e installazione per fiere, congressi, eventi, decorazione di interni ed esterni, immagine aziendale e branding fleet — con copertura su tutto il territorio spagnolo e nei paesi dell\'Unione Europea.\n\nCosa facciamo:\n• Organizzazione di fiere e congressi: photocall, supporti rigidi, bandiere, tessili, vinili, lettere tridimensionali.\n• Produzione: stampa digitale di grande formato (teli, vinili, tessili, supporti rigidi), PLV/display, totem, elementi di branding e supporti su misura.\n• Branding per franchising: immagine aziendale, design degli interni e degli esterni.\n• Stand: modulari e su misura, dal concept alla consegna chiavi in mano.\n• Segnaletica integrata: direzionale, accreditamenti, sicurezza e allestimento del sito.\n• Decorazione di veicoli e flotte (per attivazioni di brand e logistica).\n• Decorazione di interni/immagine aziendale per spazi effimeri o permanenti.\n• Decorazione di uffici (interni ed esterni).\n• Hospitality & Ristoranti: ristrutturazioni, rifacimenti decorativi con vinili di rivestimento e texture.\n• Scuole & uffici: vinili, pellicole solari, pittogrammi, segnaletica e molto altro.\n\nCatalogo generale: https://drive.google.com/file/d/14os32vAe747lEStnwy8Zl7tlyFU6kLLb/view?usp=sharing\nCatalogo rinnovo hotel e ristoranti: https://drive.google.com/file/d/1uf2VsEVLg7G-yjJqi4S8ttHmtrXgyRIa/view?usp=drive_link\n\nSe questo si adatta a qualche esigenza, propongo una chiamata di 10–15 minuti. Il nostro obiettivo è diventare un partner di fiducia per la vostra azienda.\n\nResto a disposizione. Grazie per il vostro tempo,\n\nNico\nNicolas Benitez — Business Development\nUnical Graphic · nico@unical.es'
+  },
+  {
+    id: 'template_nl',
+    name: 'Algemene Presentatie - Nederlands',
+    subject: '360° Partner voor beurzen, congressen en evenementen in Spanje',
+    body: 'Goedemorgen,\n\nMijn naam is Nicolas Benitez, verantwoordelijk voor bedrijfsontwikkeling bij Unical Graphic. Wij willen onszelf graag voorstellen als 360°-partner voor reclame-/marketingbureaus die een team nodig hebben voor ontwerp, productie en installatie bij beurzen, congressen, evenementen, binnen- en buitendecoratie, huisstijl en wagenpark-branding — met dekking in het gehele Spaanse grondgebied en EU-landen.\n\nWat wij doen:\n• Organisatie van beurzen en congressen: photocalls, rigide displays, banieren, textiel, vinyl, uitgelicht schrift.\n• Productie: digitaal drukwerk in groot formaat (spandoeken, vinyl, textiel, rigide materialen), POS/displays, totems, branding-elementen en maatwerk.\n• Franchise-branding: huisstijl, interieur- en exterieurontwerp.\n• Stands: modulair en op maat, van concept tot sleutelklare oplevering.\n• Integrale bewegwijzering: richtingwijzers, accreditaties, veiligheid en locatie-inrichting.\n• Voertuig- en wagenpark-branding (voor merkactivaties en merkenlogistiek).\n• Interieurinrichting/huisstijl voor tijdelijke of permanente ruimtes.\n• Kantoorinrichting (binnen en buiten).\n• Hospitality & Restaurants: renovaties, decoratieve verbouwingen met bedekkende vinyl en texturen.\n• Scholen & kantoren: vinyl, zonwerende folie, pictogrammen, bewegwijzering en nog veel meer.\n\nAlgemene catalogus: https://drive.google.com/file/d/14os32vAe747lEStnwy8Zl7tlyFU6kLLb/view?usp=sharing\nCatalogus renovatie hotels en restaurants: https://drive.google.com/file/d/1uf2VsEVLg7G-yjJqi4S8ttHmtrXgyRIa/view?usp=drive_link\n\nAls dit aansluit bij een behoefte van u, stel ik voor een gesprek van 10–15 minuten te plannen. Ons doel is een vertrouwde partner te worden voor uw bedrijf.\n\nIk kijk uit naar uw reactie. Bedankt voor uw tijd,\n\nNico\nNicolas Benitez — Business Development\nUnical Graphic · nico@unical.es'
   }
 ];
 
@@ -55,6 +114,8 @@ export default function B2BCRM() {
   const [searchTerm, setSearchTerm] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [searchProgress, setSearchProgress] = useState('');
+  const [autoSendEmails, setAutoSendEmails] = useState(false);
+  const [autoSendStats, setAutoSendStats] = useState({ sent: 0, failed: 0 });
   const [notification, setNotification] = useState(null);
   const [sortConfig, setSortConfig] = useState({ key: 'leadScore', direction: 'desc' });
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -225,6 +286,55 @@ export default function B2BCRM() {
     setReminders(prev => [...prev, reminder]);
   };
 
+  const autoSendToProspect = async (prospect, templates) => {
+    const templateId = COUNTRY_TEMPLATE_MAP[prospect.country] || 'template_es';
+    const template = templates.find(t => t.id === templateId) || templates[0];
+    if (!template) return false;
+
+    const personalize = (text) => text
+      .replace(/\{company\}/g, prospect.company)
+      .replace(/\{email\}/g, prospect.email)
+      .replace(/\{country\}/g, COUNTRIES.find(c => c.code === prospect.country)?.name || prospect.country)
+      .replace(/\{sector\}/g, prospect.sector)
+      .replace(/\{recentEvent\}/g, prospect.recentEvent || 'sus eventos')
+      .replace(/\{decisionMaker\}/g, prospect.decisionMaker || 'equipo');
+
+    const subject = personalize(template.subject);
+    const body = personalize(template.body);
+
+    try {
+      const res = await fetch('/api/send-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: prospect.email, subject, body })
+      });
+      const result = await res.json();
+      if (res.ok && result.success) {
+        setEmailSent(prev => [...prev, {
+          id: Date.now() + Math.random(),
+          prospectId: prospect.id,
+          to: prospect.email,
+          company: prospect.company,
+          subject,
+          body,
+          from: 'nico@unical.es',
+          sentAt: new Date().toISOString(),
+          resendId: result.id,
+          autoSent: true
+        }]);
+        setAutoSendStats(prev => ({ ...prev, sent: prev.sent + 1 }));
+        // Recordatorio de seguimiento a 3 días
+        createReminder(prospect.id, `Seguimiento auto-email → ${prospect.company}`, 3);
+        addActivity(prospect.id, 'email_sent', `Email automático enviado (${template.name}): ${subject}`);
+        return true;
+      }
+    } catch (e) {
+      console.error('Auto-send error:', e);
+    }
+    setAutoSendStats(prev => ({ ...prev, failed: prev.failed + 1 }));
+    return false;
+  };
+
   const handleSearch = async () => {
     if (selectedCountries.length === 0 || selectedSectors.length === 0) {
       showNotification('Selecciona al menos un país y un sector', 'error');
@@ -232,7 +342,11 @@ export default function B2BCRM() {
     }
 
     setIsSearching(true);
+    setAutoSendStats({ sent: 0, failed: 0 });
     setSearchProgress('Iniciando búsqueda intensiva con enriquecimiento de datos...');
+
+    const searchStartTime = new Date().toISOString();
+    const newSearchProspects = [];
 
     try {
       let foundProspects = 0;
@@ -335,16 +449,16 @@ DO NOT return empty arrays. Search until you find real companies.`
                   const results = JSON.parse(jsonMatch[0]);
                   
                   if (Array.isArray(results)) {
-                    results.forEach(result => {
-                      if (!result.company || !result.email || !result.website) return;
-                      if (isBlockedEmail(result.email)) return;
-                      if (!validateEmail(result.email)) return;
+                    for (const result of results) {
+                      if (!result.company || !result.email) continue;
+                      if (isBlockedEmail(result.email)) continue;
+                      if (!validateEmail(result.email)) continue;
 
                       const emailLower = result.email.toLowerCase();
                       const companyLower = result.company.toLowerCase();
 
-                      if (usedEmails.has(emailLower)) return;
-                      if (usedCompanies.has(companyLower)) return;
+                      if (usedEmails.has(emailLower)) continue;
+                      if (usedCompanies.has(companyLower)) continue;
 
                       usedEmails.add(emailLower);
                       usedCompanies.add(companyLower);
@@ -355,7 +469,7 @@ DO NOT return empty arrays. Search until you find real companies.`
                         country: country.code,
                         sector,
                         email: result.email.trim(),
-                        website: result.website.trim(),
+                        website: result.website ? result.website.trim() : '',
                         linkedin: result.linkedin || '',
                         phone: result.phone || '',
                         companySize: result.companySize || 'medium',
@@ -380,15 +494,25 @@ DO NOT return empty arrays. Search until you find real companies.`
                       newProspect.leadScore = calculateLeadScore(newProspect);
 
                       setProspects(prev => [...prev, newProspect]);
+                      newSearchProspects.push(newProspect);
                       foundProspects++;
                       categoryProspects++;
-                      
-                      // Create automatic reminder
-                      createReminder(newProspect.id, `Contactar a ${newProspect.company}`, 1);
-                      
-                      // Log activity
+
+                      // Auto-envío de email si está activado
+                      if (autoSendEmails) {
+                        setSearchProgress(`Enviando email a ${newProspect.company}...`);
+                        await autoSendToProspect(newProspect, emailTemplates);
+                        setProspects(prev => prev.map(p =>
+                          p.id === newProspect.id
+                            ? { ...p, stage: 'contacted', lastContact: new Date().toISOString(), nextFollowUp: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString() }
+                            : p
+                        ));
+                      } else {
+                        createReminder(newProspect.id, `Contactar a ${newProspect.company}`, 1);
+                      }
+
                       addActivity(newProspect.id, 'created', `Lead creado desde búsqueda web`);
-                    });
+                    }
                   }
                 } catch (e) {
                   console.error('Error parseando JSON:', e);
@@ -406,7 +530,22 @@ DO NOT return empty arrays. Search until you find real companies.`
       setIsSearching(false);
       
       if (foundProspects > 0) {
-        showNotification(`✅ ¡${foundProspects} nuevos leads con datos enriquecidos!`);
+        const searchRecord = {
+          id: Date.now(),
+          countries: selectedCountries.map(c => c.code),
+          sectors: selectedSectors,
+          startTime: searchStartTime,
+          endTime: new Date().toISOString(),
+          prospects: newSearchProspects,
+          total: foundProspects,
+          autoSent: autoSendEmails ? autoSendStats.sent : 0
+        };
+        setSearchHistory(prev => [searchRecord, ...prev].slice(0, 20));
+        if (autoSendEmails) {
+          showNotification(`✅ ${foundProspects} leads encontrados · ${autoSendStats.sent} emails enviados automáticamente`);
+        } else {
+          showNotification(`✅ ¡${foundProspects} nuevos leads con datos enriquecidos!`);
+        }
       } else {
         showNotification('⚠️ No se encontraron nuevos prospectos únicos.', 'error');
       }
@@ -547,7 +686,12 @@ DO NOT return empty arrays. Search until you find real companies.`
       .replace(/\{decisionMaker\}/g, prospect.decisionMaker || 'equipo');
   };
 
-  const sendEmails = () => {
+  const sendEmails = async () => {
+    if (!emailSubject || !emailBody) {
+      showNotification('Completa el asunto y el mensaje', 'error');
+      return;
+    }
+
     const recipientsData = selectedProspects.map(id => {
       const prospect = prospects.find(p => p.id === id);
       return {
@@ -560,59 +704,120 @@ DO NOT return empty arrays. Search until you find real companies.`
       };
     });
 
-    recipientsData.forEach(data => {
-      setEmailSent(prev => [...prev, {
-        id: Date.now() + Math.random(),
-        ...data,
-        from: 'nico@unical.es'
-      }]);
+    showNotification(`Enviando ${recipientsData.length} email(s)...`);
 
-      updateProspect(data.prospectId, { 
-        stage: 'contacted',
-        lastContact: new Date().toISOString(),
-        nextFollowUp: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString()
-      });
-      
-      addActivity(data.prospectId, 'email_sent', `Email enviado: ${data.subject}`);
-    });
+    let sent = 0;
+    let failed = 0;
 
-    if (recipientsData.length > 0) {
-      const first = recipientsData[0];
-      window.open(`mailto:${first.to}?subject=${encodeURIComponent(first.subject)}&body=${encodeURIComponent(first.body)}`, '_self');
+    for (const data of recipientsData) {
+      try {
+        const res = await fetch('/api/send-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            to: data.to,
+            subject: data.subject,
+            body: data.body
+          })
+        });
+
+        const result = await res.json();
+
+        if (res.ok && result.success) {
+          sent++;
+          setEmailSent(prev => [...prev, {
+            id: Date.now() + Math.random(),
+            ...data,
+            from: 'nico@unical.es',
+            resendId: result.id
+          }]);
+          updateProspect(data.prospectId, {
+            stage: 'contacted',
+            lastContact: new Date().toISOString(),
+            nextFollowUp: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString()
+          });
+          addActivity(data.prospectId, 'email_sent', `Email enviado: ${data.subject}`);
+        } else {
+          failed++;
+          console.error(`Error enviando a ${data.to}:`, result.error);
+        }
+      } catch (err) {
+        failed++;
+        console.error(`Error de red enviando a ${data.to}:`, err);
+      }
+
+      // Pausa entre envíos para respetar el rate limit de Resend
+      if (recipientsData.length > 1) {
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }
     }
 
-    showNotification(`✅ ${recipientsData.length} emails preparados.`);
-    
+    if (failed === 0) {
+      showNotification(`✅ ${sent} email(s) enviados correctamente desde nico@unical.es`);
+    } else if (sent > 0) {
+      showNotification(`⚠️ ${sent} enviados, ${failed} fallaron. Revisa la consola.`, 'error');
+    } else {
+      showNotification('❌ No se pudieron enviar los emails. Verifica la configuración de Resend.', 'error');
+    }
+
     setTimeout(() => {
       closeEmailModal();
       deselectAll();
-    }, 1000);
+    }, 1500);
   };
 
   const exportToCSV = () => {
     const filtered = getFilteredProspects();
-    
+
     if (filtered.length === 0) {
       showNotification('No hay prospectos para exportar', 'error');
       return;
     }
 
-    const emails = filtered
-      .map(p => p.email)
-      .filter(email => email && !isBlockedEmail(email))
-      .join('\n');
+    const headers = [
+      'Empresa', 'Email', 'Website', 'Teléfono', 'País', 'Sector',
+      'Etapa', 'Lead Score', 'Valor Deal (€)', 'Decision Maker',
+      'Eventos/Año', 'Tamaño Empresa', 'Evento Reciente', 'Pain Point', 'Notas', 'Fecha Creación'
+    ];
 
-    const blob = new Blob([emails], { type: 'text/csv;charset=utf-8;' });
+    const rows = filtered
+      .filter(p => p.email && !isBlockedEmail(p.email))
+      .map(p => {
+        const countryName = COUNTRIES.find(c => c.code === p.country)?.name || p.country;
+        const stageName = PIPELINE_STAGES.find(s => s.value === p.stage)?.label || p.stage;
+        const escape = (val) => `"${String(val || '').replace(/"/g, '""')}"`;
+        return [
+          escape(p.company),
+          escape(p.email),
+          escape(p.website),
+          escape(p.phone),
+          escape(countryName),
+          escape(p.sector),
+          escape(stageName),
+          p.leadScore || 0,
+          p.dealValue || 0,
+          escape(p.decisionMaker),
+          escape(p.eventsPerYear),
+          escape(p.companySize),
+          escape(p.recentEvent),
+          escape(p.painPoint),
+          escape(p.notes),
+          escape(p.createdAt ? new Date(p.createdAt).toLocaleDateString('es-ES') : '')
+        ].join(',');
+      });
+
+    const csvContent = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `prospectos_${new Date().toISOString().split('T')[0]}.txt`;
+    a.download = `prospectos_unical_${new Date().toISOString().split('T')[0]}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 
-    showNotification(`✅ ${filtered.length} emails exportados`);
+    showNotification(`✅ ${filtered.length} prospectos exportados (CSV completo)`);
   };
 
   const openTemplateModal = (template = null) => {
@@ -685,24 +890,45 @@ DO NOT return empty arrays. Search until you find real companies.`
       return;
     }
 
-    const emails = searchRecord.prospects
-      .map(p => p.email)
-      .filter(email => email && !isBlockedEmail(email))
-      .join('\n');
+    const headers = [
+      'Empresa', 'Email', 'Website', 'Teléfono', 'País', 'Sector',
+      'Lead Score', 'Valor Deal (€)', 'Decision Maker', 'Eventos/Año', 'Tamaño Empresa'
+    ];
 
-    const blob = new Blob([emails], { type: 'text/csv;charset=utf-8;' });
+    const rows = searchRecord.prospects
+      .filter(p => p.email && !isBlockedEmail(p.email))
+      .map(p => {
+        const countryName = COUNTRIES.find(c => c.code === p.country)?.name || p.country;
+        const escape = (val) => `"${String(val || '').replace(/"/g, '""')}"`;
+        return [
+          escape(p.company),
+          escape(p.email),
+          escape(p.website),
+          escape(p.phone),
+          escape(countryName),
+          escape(p.sector),
+          p.leadScore || 0,
+          p.dealValue || 0,
+          escape(p.decisionMaker),
+          escape(p.eventsPerYear),
+          escape(p.companySize)
+        ].join(',');
+      });
+
+    const csvContent = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     const dateStr = new Date(searchRecord.startTime).toISOString().split('T')[0];
-    const countriesStr = searchRecord.countries.join('-');
-    a.download = `busqueda_${countriesStr}_${dateStr}.txt`;
+    const countriesStr = (searchRecord.countries || []).join('-');
+    a.download = `busqueda_${countriesStr}_${dateStr}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 
-    showNotification(`✅ ${searchRecord.prospects.length} emails descargados`);
+    showNotification(`✅ ${searchRecord.prospects.length} prospectos exportados`);
   };
 
   const deleteSearchHistory = (searchId) => {
@@ -1043,6 +1269,42 @@ DO NOT return empty arrays. Search until you find real companies.`
                 </div>
               </div>
 
+              {/* Toggle auto-envío */}
+              <div className={`mb-4 rounded-xl border-2 p-4 transition-all ${autoSendEmails ? 'border-green-400 bg-green-50' : 'border-gray-200 bg-gray-50'}`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Send className={`w-5 h-5 ${autoSendEmails ? 'text-green-600' : 'text-gray-400'}`} />
+                      <span className={`font-semibold ${autoSendEmails ? 'text-green-800' : 'text-gray-700'}`}>
+                        Envío automático de emails
+                      </span>
+                      {autoSendEmails && (
+                        <span className="px-2 py-0.5 bg-green-500 text-white text-xs rounded-full font-bold animate-pulse">
+                          ACTIVO
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-500 ml-7">
+                      {autoSendEmails
+                        ? 'Cada lead encontrado recibirá el email en su idioma automáticamente. Se crearán recordatorios de seguimiento a 3 días.'
+                        : 'Activa para enviar el email de presentación automáticamente a cada lead encontrado, en su idioma.'}
+                    </p>
+                    {autoSendEmails && (
+                      <div className="ml-7 mt-2 flex gap-3 text-xs font-medium">
+                        <span className="text-gray-500">Idiomas activos:</span>
+                        <span className="text-blue-600">🇬🇧🇺🇸 EN · 🇩🇪🇨🇭 DE · 🇫🇷 FR · 🇮🇹 IT · 🇳🇱🇧🇪 NL · 🇪🇸🇵🇹 ES</span>
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => setAutoSendEmails(v => !v)}
+                    className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors ml-4 shrink-0 ${autoSendEmails ? 'bg-green-500' : 'bg-gray-300'}`}
+                  >
+                    <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${autoSendEmails ? 'translate-x-6' : 'translate-x-1'}`} />
+                  </button>
+                </div>
+              </div>
+
               <button
                 onClick={handleSearch}
                 disabled={isSearching || selectedCountries.length === 0 || selectedSectors.length === 0}
@@ -1059,7 +1321,7 @@ DO NOT return empty arrays. Search until you find real companies.`
                 ) : (
                   <span className="flex items-center justify-center">
                     <Search className="w-5 h-5 mr-2" />
-                    Buscar 30+ leads con datos enriquecidos
+                    {autoSendEmails ? 'Buscar y enviar emails automáticamente' : 'Buscar 30+ leads con datos enriquecidos'}
                   </span>
                 )}
               </button>
@@ -1531,6 +1793,88 @@ DO NOT return empty arrays. Search until you find real companies.`
                         );
                       })}
                   </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'history' && (
+            <div className="p-6">
+              <h2 className="text-xl font-semibold mb-6">Historial de Búsquedas</h2>
+              {searchHistory.length === 0 ? (
+                <div className="text-center py-16 text-gray-400">
+                  <Search className="w-16 h-16 mx-auto mb-4 opacity-30" />
+                  <p className="text-lg font-medium">No hay búsquedas registradas</p>
+                  <p className="text-sm mt-1">Las próximas búsquedas aparecerán aquí</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {searchHistory.map(record => (
+                    <div key={record.id} className="border border-gray-200 rounded-lg p-5 hover:border-blue-300 transition-colors bg-white">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-3 mb-3">
+                            <span className="text-sm font-semibold text-gray-800">
+                              {new Date(record.startTime).toLocaleString('es-ES')}
+                            </span>
+                            <span className="px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs font-bold">
+                              {record.total} leads
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap gap-1 mb-2">
+                            {(record.countries || []).map(code => {
+                              const country = COUNTRIES.find(c => c.code === code);
+                              return country ? (
+                                <span key={code} className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium">
+                                  {country.flag} {country.name}
+                                </span>
+                              ) : null;
+                            })}
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            {(record.sectors || []).map(sector => (
+                              <span key={sector} className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs">
+                                {sector}
+                              </span>
+                            ))}
+                          </div>
+                          {record.prospects && record.prospects.length > 0 && (
+                            <div className="mt-3 pt-3 border-t border-gray-100">
+                              <p className="text-xs text-gray-500 mb-2">Empresas encontradas:</p>
+                              <div className="flex flex-wrap gap-1">
+                                {record.prospects.slice(0, 8).map((p, i) => (
+                                  <span key={i} className="text-xs text-gray-700 bg-gray-50 border border-gray-200 rounded px-2 py-1">
+                                    {p.company}
+                                  </span>
+                                ))}
+                                {record.prospects.length > 8 && (
+                                  <span className="text-xs text-gray-400 px-2 py-1">+{record.prospects.length - 8} más</span>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex flex-col gap-2 shrink-0">
+                          {record.prospects && record.prospects.length > 0 && (
+                            <button
+                              onClick={() => downloadSearchResults(record)}
+                              className="px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-sm flex items-center gap-1 whitespace-nowrap"
+                            >
+                              <Download className="w-4 h-4" />
+                              Exportar CSV
+                            </button>
+                          )}
+                          <button
+                            onClick={() => deleteSearchHistory(record.id)}
+                            className="px-3 py-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition-colors text-sm flex items-center gap-1 justify-center"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                            Eliminar
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>

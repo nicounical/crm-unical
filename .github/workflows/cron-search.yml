@@ -1,0 +1,38 @@
+name: CRM Auto Search & Email
+
+on:
+  schedule:
+    - cron: '0 7 * * *'   # 07:00 UTC = 09:00 España (verano)
+    - cron: '0 11 * * *'  # 11:00 UTC = 13:00 España (verano)
+    - cron: '0 15 * * *'  # 15:00 UTC = 17:00 España (verano)
+    - cron: '0 19 * * *'  # 19:00 UTC = 21:00 España (verano)
+  workflow_dispatch:        # Permite lanzarlo también a mano desde GitHub
+
+jobs:
+  search-and-email:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Buscar nuevas empresas y enviar emails
+        run: |
+          echo "🔍 Iniciando búsqueda automática..."
+
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -X GET \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            "https://crm-unical.vercel.app/api/cron-search")
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+
+          echo "📊 Respuesta HTTP: $HTTP_CODE"
+          echo "📋 Resultado: $BODY"
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ Error en el cron: HTTP $HTTP_CODE"
+            exit 1
+          fi
+
+          echo "✅ Búsqueda completada correctamente"
