@@ -138,25 +138,49 @@ export default function B2BCRM() {
   const [reminders, setReminders] = useState([]);
   const [activities, setActivities] = useState([]);
   const [searchHistory, setSearchHistory] = useState([]);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncInfo, setSyncInfo] = useState(null);
+
+  const sanitizeProspect = (p) => ({
+    ...p,
+    dealValue:   typeof p.dealValue   === 'number' ? p.dealValue   : 5000,
+    probability: typeof p.probability === 'number' ? p.probability : 10,
+    leadScore:   typeof p.leadScore   === 'number' ? p.leadScore   : 0,
+    stage:       p.stage   || 'lead',
+    email:       p.email   || '',
+    company:     p.company || 'Sin nombre',
+    country:     p.country || '',
+    sector:      p.sector  || ''
+  });
 
   useEffect(() => {
+    // 1. Carga local primero (instantáneo)
     const saved = localStorage.getItem('b2b_prospects');
-    if (saved) {
-      // Sanea prospects antiguos que puedan no tener todos los campos.
-      // Sin esto, acceder a .toLocaleString() sobre undefined crashea el Pipeline.
-      const parsed = JSON.parse(saved).map(p => ({
-        ...p,
-        dealValue: typeof p.dealValue === 'number' ? p.dealValue : 5000,
-        probability: typeof p.probability === 'number' ? p.probability : 10,
-        leadScore: typeof p.leadScore === 'number' ? p.leadScore : 0,
-        stage: p.stage || 'lead',
-        email: p.email || '',
-        company: p.company || 'Sin nombre',
-        country: p.country || '',
-        sector: p.sector || ''
-      }));
-      setProspects(parsed);
-    }
+    const localProspects = saved ? JSON.parse(saved).map(sanitizeProspect) : [];
+    setProspects(localProspects);
+
+    // 2. Sincroniza con Supabase en segundo plano (leads del cron)
+    setIsSyncing(true);
+    fetch('/api/prospects')
+      .then(r => r.ok ? r.json() : [])
+      .then(dbProspects => {
+        if (!Array.isArray(dbProspects) || dbProspects.length === 0) return;
+        setProspects(prev => {
+          const localEmails = new Set(prev.map(p => p.email.toLowerCase()));
+          const newFromDb = dbProspects
+            .filter(p => p.email && !localEmails.has(p.email.toLowerCase()))
+            .map(sanitizeProspect);
+          if (newFromDb.length === 0) return prev;
+          const merged = [...prev, ...newFromDb];
+          localStorage.setItem('b2b_prospects', JSON.stringify(merged));
+          setSyncInfo(`${newFromDb.length} lead(s) nuevos cargados desde Supabase`);
+          setTimeout(() => setSyncInfo(null), 5000);
+          return merged;
+        });
+      })
+      .catch(() => {}) // Fallo silencioso si la API no está disponible
+      .finally(() => setIsSyncing(false));
+
     const savedTemplates = localStorage.getItem('email_templates');
     if (savedTemplates) {
       setEmailTemplates(JSON.parse(savedTemplates));
@@ -562,25 +586,28 @@ DO NOT return empty arrays. Search until you find real companies.`
       if (p.id === id) {
         const updated = { ...p, ...updates, updatedAt: new Date().toISOString() };
         updated.leadScore = calculateLeadScore(updated);
-        
-        // Update probability based on stage
+
         const stage = PIPELINE_STAGES.find(s => s.value === updated.stage);
-        if (stage) {
-          updated.probability = stage.probability;
-        }
-        
-        // Log activity if stage changed
+        if (stage) updated.probability = stage.probability;
+
         if (updates.stage && updates.stage !== p.stage) {
           addActivity(id, 'stage_change', `Movido a ${PIPELINE_STAGES.find(s => s.value === updates.stage)?.label}`);
-          
-          // Auto-create follow-up reminders
           if (updates.stage === 'contacted') {
             createReminder(id, `Seguimiento ${updated.company}`, 3);
           } else if (updates.stage === 'proposal_sent') {
             createReminder(id, `Revisar propuesta con ${updated.company}`, 7);
           }
         }
-        
+
+        // Sincronizar cambios a Supabase en segundo plano (solo si tiene UUID de Supabase)
+        if (typeof id === 'string' && id.includes('-')) {
+          fetch('/api/prospects', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, ...updates, leadScore: updated.leadScore, probability: updated.probability })
+          }).catch(() => {});
+        }
+
         return updated;
       }
       return p;
@@ -988,14 +1015,30 @@ DO NOT return empty arrays. Search until you find real companies.`
                 Sistema completo de ventas para eventos corporativos
               </p>
             </div>
-            {stats.pendingReminders > 0 && (
-              <div className="bg-red-100 border border-red-300 rounded-lg px-4 py-2">
-                <div className="flex items-center gap-2">
-                  <Bell className="w-5 h-5 text-red-600" />
-                  <span className="text-red-800 font-semibold">{stats.pendingReminders} recordatorios pendientes</span>
+            <div className="flex flex-col items-end gap-2">
+              {isSyncing && (
+                <div className="flex items-center gap-2 text-sm text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg">
+                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                  </svg>
+                  Sincronizando con Supabase...
                 </div>
-              </div>
-            )}
+              )}
+              {syncInfo && !isSyncing && (
+                <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 px-3 py-1.5 rounded-lg">
+                  ✅ {syncInfo}
+                </div>
+              )}
+              {stats.pendingReminders > 0 && (
+                <div className="bg-red-100 border border-red-300 rounded-lg px-4 py-2">
+                  <div className="flex items-center gap-2">
+                    <Bell className="w-5 h-5 text-red-600" />
+                    <span className="text-red-800 font-semibold">{stats.pendingReminders} recordatorios pendientes</span>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
