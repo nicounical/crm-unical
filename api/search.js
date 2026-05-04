@@ -128,7 +128,7 @@ export default async function handler(req) {
       seen.add(domain);
 
       const emails = extractEmails(snippet + ' ' + company);
-      const email = emails[0] || guessEmail(domain, sector);
+      const email = emails[0] || '';
 
       results.push({
         company: company.substring(0, 80),
