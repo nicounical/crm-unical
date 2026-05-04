@@ -252,7 +252,29 @@ export default function B2BCRM() {
     if (!email) return false;
     if (isBlockedEmail(email)) return false;
     const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return re.test(email.toLowerCase());
+    if (!re.test(email.toLowerCase())) return false;
+
+    // Rechaza emails que son claramente inventados/placeholders
+    const local = email.split('@')[0].toLowerCase();
+    const suspiciousPatterns = [
+      /^first[\.\-]?last$/,        // first.last@
+      /^name[\.\-]?surname$/,      // name.surname@
+      /^your[\.\-]?name$/,         // yourname@
+      /^example$/,                 // example@
+      /^test$/,                    // test@
+      /^user$/,                    // user@
+      /^[a-z]+\.[a-z]+@/,         // word.word@ — patrón genérico de nombre inventado
+    ];
+    // Solo rechaza el patrón word.word si la parte local tiene pinta de placeholder
+    if (/^(first|last|name|surname|your|john|jane|user)\.(last|name|surname|doe|smith|user)$/.test(local)) return false;
+    // Rechaza exactamente "first.last", "name.surname" etc.
+    if (['first.last','name.surname','your.name','yourname','firstname.lastname'].includes(local)) return false;
+
+    // Rechaza prefijos sospechosos/inventados
+    const suspiciousLocals = ['replyquick','noreply','no-reply','donotreply','do-not-reply','bounce','mailer','postmaster','webmaster','hostmaster','spam'];
+    if (suspiciousLocals.some(s => local === s || local.startsWith(s + '.'))) return false;
+
+    return true;
   };
 
   const calculateLeadScore = (prospect) => {
@@ -374,7 +396,7 @@ export default function B2BCRM() {
 
     try {
       let foundProspects = 0;
-      const MIN_COMPANIES_PER_CATEGORY = 30;
+      const MIN_COMPANIES_PER_CATEGORY = 10;
       const usedEmails = new Set(prospects.map(p => p.email.toLowerCase()));
       const usedCompanies = new Set(prospects.map(p => p.company.toLowerCase()));
 
@@ -382,10 +404,10 @@ export default function B2BCRM() {
         for (const sector of selectedSectors) {
           let categoryProspects = 0;
           let searchRound = 1;
-          const MAX_ROUNDS = 6;
+          const MAX_ROUNDS = 2;
 
           while (categoryProspects < MIN_COMPANIES_PER_CATEGORY && searchRound <= MAX_ROUNDS) {
-            setSearchProgress(`${country.name} - ${sector}: ${categoryProspects}/${MIN_COMPANIES_PER_CATEGORY} (ronda ${searchRound}/${MAX_ROUNDS})`);
+            setSearchProgress(`Buscando: ${country.name} · ${sector} (ronda ${searchRound}/${MAX_ROUNDS})`);
 
             const searchVariations = [
               `${sector} ${country.name} corporate events Spain email contact directory decision maker`,
@@ -398,154 +420,98 @@ export default function B2BCRM() {
 
             const query = searchVariations[(searchRound - 1) % searchVariations.length];
 
-            const response = await fetch('https://api.anthropic.com/v1/messages', {
+            const response = await fetch('/api/search', {
               method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                model: 'claude-sonnet-4-20250514',
-                max_tokens: 4000,
-                messages: [{
-                  role: 'user',
-                  content: `CRITICAL MISSION: Search exhaustively and find as many REAL companies as possible.
-
-SEARCH QUERY: "${query}"
-
-GOAL: Find 15-20 DIFFERENT real companies in "${sector}" from ${country.name} that organize corporate events in Spain.
-
-ENRICHED DATA REQUIREMENTS:
-1. NEVER include "${BLOCKED_EMAIL}"
-2. Find REAL companies with verified websites
-3. Professional email (sales@, events@, contact@, named contacts)
-4. Try to extract: company size (employees), recent events organized, decision maker name
-5. Each company MUST be unique
-
-For EACH company, provide ALL available data:
-{
-  "company": "Exact Company Name",
-  "email": "verified@email.com",
-  "website": "https://fullwebsite.com",
-  "linkedin": "https://linkedin.com/company/name",
-  "phone": "+country-phone" (if found),
-  "companySize": "small/medium/large" (estimate),
-  "eventsPerYear": "1/2-5/5-10/10+" (estimate if visible),
-  "recentEvent": "Name of recent event organized" (if found),
-  "decisionMaker": "Name and title" (if found),
-  "painPoint": "Any challenge mentioned" (if found)
-}
-
-Search sources:
-- Company directories and databases
-- Event industry listings
-- Professional associations
-- LinkedIn company pages
-- Industry news/press releases
-- Event organizer databases
-- Conference websites
-
-Return ONLY valid JSON array with 15-20 companies:
-[...]
-
-DO NOT return empty arrays. Search until you find real companies.`
-                }],
-                tools: [{
-                  type: 'web_search_20250305',
-                  name: 'web_search'
-                }]
-              })
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ query, countryName: country.name, sector })
             });
 
-            const data = await response.json();
-            let allText = '';
-            if (data.content) {
-              for (const block of data.content) {
-                if (block.type === 'text') {
-                  allText += block.text + '\n';
-                }
+            if (!response.ok) {
+              const text = await response.text();
+              if (text.includes('<!DOCTYPE') || text.includes('<html')) {
+                throw new Error('Las funciones /api/ no están disponibles en local. Prueba en https://crm-unical.vercel.app o ejecuta: npx vercel dev');
               }
+              throw new Error(`Error del servidor: ${response.status}`);
             }
 
-            if (allText) {
-              const jsonMatch = allText.match(/\[[\s\S]*\]/);
-              if (jsonMatch) {
-                try {
-                  const results = JSON.parse(jsonMatch[0]);
-                  
-                  if (Array.isArray(results)) {
-                    for (const result of results) {
-                      if (!result.company || !result.email) continue;
-                      if (isBlockedEmail(result.email)) continue;
-                      if (!validateEmail(result.email)) continue;
+            const data = await response.json();
+            const results = data.results || [];
 
-                      const emailLower = result.email.toLowerCase();
-                      const companyLower = result.company.toLowerCase();
-
-                      if (usedEmails.has(emailLower)) continue;
-                      if (usedCompanies.has(companyLower)) continue;
-
-                      usedEmails.add(emailLower);
-                      usedCompanies.add(companyLower);
-
-                      const newProspect = {
-                        id: Date.now() + Math.random(),
-                        company: result.company.trim(),
-                        country: country.code,
-                        sector,
-                        email: result.email.trim(),
-                        website: result.website ? result.website.trim() : '',
-                        linkedin: result.linkedin || '',
-                        phone: result.phone || '',
-                        companySize: result.companySize || 'medium',
-                        eventsPerYear: result.eventsPerYear || '2-5',
-                        recentEvent: result.recentEvent || '',
-                        decisionMaker: result.decisionMaker || '',
-                        painPoint: result.painPoint || '',
-                        notes: '',
-                        tags: [],
-                        stage: 'lead',
-                        dealValue: 5000,
-                        probability: 10,
-                        leadScore: 0,
-                        emailOpened: false,
-                        emailReplied: false,
-                        lastContact: null,
-                        nextFollowUp: null,
-                        createdAt: new Date().toISOString(),
-                        updatedAt: new Date().toISOString()
-                      };
-
-                      newProspect.leadScore = calculateLeadScore(newProspect);
-
-                      setProspects(prev => [...prev, newProspect]);
-                      newSearchProspects.push(newProspect);
-                      foundProspects++;
-                      categoryProspects++;
-
-                      // Auto-envío de email si está activado
-                      if (autoSendEmails) {
-                        setSearchProgress(`Enviando email a ${newProspect.company}...`);
-                        await autoSendToProspect(newProspect, emailTemplates);
-                        setProspects(prev => prev.map(p =>
-                          p.id === newProspect.id
-                            ? { ...p, stage: 'contacted', lastContact: new Date().toISOString(), nextFollowUp: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString() }
-                            : p
-                        ));
-                      } else {
-                        createReminder(newProspect.id, `Contactar a ${newProspect.company}`, 1);
-                      }
-
-                      addActivity(newProspect.id, 'created', `Lead creado desde búsqueda web`);
-                    }
-                  }
-                } catch (e) {
-                  console.error('Error parseando JSON:', e);
-                }
+            for (const result of results) {
+              // Necesita al menos nombre de empresa
+              if (!result.company) continue;
+              // Necesita email o website (sin ambos no podemos contactar)
+              if (!result.email && !result.website) continue;
+              // Filtra emails bloqueados o inválidos
+              if (result.email && isBlockedEmail(result.email)) continue;
+              if (result.email && !validateEmail(result.email)) {
+                result.email = ''; // Descarta email inválido pero guarda la empresa
               }
+
+              const emailLower = (result.email || '').toLowerCase();
+              const companyLower = result.company.toLowerCase();
+
+              // Dedup por empresa (email puede estar vacío)
+              if (emailLower && usedEmails.has(emailLower)) continue;
+              if (usedCompanies.has(companyLower)) continue;
+
+              if (emailLower) usedEmails.add(emailLower);
+              usedCompanies.add(companyLower);
+
+              const newProspect = {
+                id: Date.now() + Math.random(),
+                company: result.company.trim(),
+                country: country.code,
+                sector,
+                email: result.email ? result.email.trim() : '',
+                hasContactForm: result.hasContactForm || (!result.email && !!result.website),
+                website: result.website ? result.website.trim() : '',
+                linkedin: result.linkedin || '',
+                phone: result.phone || '',
+                companySize: result.companySize || 'medium',
+                eventsPerYear: result.eventsPerYear || '2-5',
+                recentEvent: result.recentEvent || '',
+                decisionMaker: result.decisionMaker || '',
+                painPoint: result.painPoint || '',
+                notes: '',
+                tags: [],
+                stage: 'lead',
+                dealValue: 5000,
+                probability: 10,
+                leadScore: 0,
+                emailOpened: false,
+                emailReplied: false,
+                lastContact: null,
+                nextFollowUp: null,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+              };
+
+              newProspect.leadScore = calculateLeadScore(newProspect);
+
+              setProspects(prev => [...prev, newProspect]);
+              newSearchProspects.push(newProspect);
+              foundProspects++;
+              categoryProspects++;
+
+              // Auto-envío de email si está activado
+              if (autoSendEmails) {
+                setSearchProgress(`Enviando email a ${newProspect.company}...`);
+                await autoSendToProspect(newProspect, emailTemplates);
+                setProspects(prev => prev.map(p =>
+                  p.id === newProspect.id
+                    ? { ...p, stage: 'contacted', lastContact: new Date().toISOString(), nextFollowUp: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString() }
+                    : p
+                ));
+              } else {
+                createReminder(newProspect.id, `Contactar a ${newProspect.company}`, 1);
+              }
+
+              addActivity(newProspect.id, 'created', `Lead creado desde búsqueda web`);
             }
 
             searchRound++;
-            await new Promise(resolve => setTimeout(resolve, 2000));
+            await new Promise(resolve => setTimeout(resolve, 8000));
           }
         }
       }
@@ -847,6 +813,25 @@ DO NOT return empty arrays. Search until you find real companies.`
     showNotification(`✅ ${filtered.length} prospectos exportados (CSV completo)`);
   };
 
+  const exportEmailsOnly = () => {
+    const filtered = getFilteredProspects().filter(p => p.email && !isBlockedEmail(p.email));
+    if (filtered.length === 0) {
+      showNotification('No hay emails para exportar', 'error');
+      return;
+    }
+    const content = filtered.map(p => p.email).join('\n');
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `emails_unical_${new Date().toISOString().split('T')[0]}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showNotification(`✅ ${filtered.length} emails exportados`);
+  };
+
   const openTemplateModal = (template = null) => {
     if (template) {
       setEditingTemplate(template);
@@ -1003,17 +988,23 @@ DO NOT return empty arrays. Search until you find real companies.`
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50 p-6">
+    <div className="min-h-screen p-6" style={{ backgroundColor: '#F4F6F8' }}>
       <div className="max-w-7xl mx-auto">
-        <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
-          <div className="flex justify-between items-center">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-800 mb-2">
-                🎯 CRM B2B - Unical Graphic
-              </h1>
-              <p className="text-gray-600">
-                Sistema completo de ventas para eventos corporativos
-              </p>
+        {/* ── HEADER ── */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 mb-6 overflow-hidden">
+          <div style={{ backgroundColor: '#5CB8D1', height: '4px' }} />
+          <div className="flex justify-between items-center px-6 py-5">
+            <div className="flex items-center gap-5">
+              <img
+                src="https://www.unical.es/assets/logo-unical-DUYUp2ZL.png"
+                alt="Unical Graphic"
+                className="h-10 object-contain"
+                onError={e => { e.target.style.display = 'none'; }}
+              />
+              <div className="border-l border-gray-200 pl-5">
+                <h1 className="text-xl font-bold text-gray-900 leading-tight">CRM B2B</h1>
+                <p className="text-sm text-gray-400 font-medium tracking-wide uppercase">Sistema de ventas · Eventos corporativos</p>
+              </div>
             </div>
             <div className="flex flex-col items-end gap-2">
               {isSyncing && (
@@ -1050,82 +1041,37 @@ DO NOT return empty arrays. Search until you find real companies.`
           </div>
         )}
 
-        <div className="bg-white rounded-xl shadow-lg mb-6 overflow-hidden">
-          <div className="flex border-b border-gray-200 overflow-x-auto">
-            <button
-              onClick={() => setActiveTab('dashboard')}
-              className={`px-6 py-4 font-semibold transition-colors whitespace-nowrap ${
-                activeTab === 'dashboard' ? 'bg-blue-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
-              }`}
-            >
-              📊 Dashboard
-            </button>
-            <button
-              onClick={() => setActiveTab('search')}
-              className={`px-6 py-4 font-semibold transition-colors whitespace-nowrap ${
-                activeTab === 'search' ? 'bg-blue-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
-              }`}
-            >
-              🔍 Nueva Búsqueda
-            </button>
-            <button
-              onClick={() => setActiveTab('pipeline')}
-              className={`px-6 py-4 font-semibold transition-colors relative whitespace-nowrap ${
-                activeTab === 'pipeline' ? 'bg-blue-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
-              }`}
-            >
-              🎯 Pipeline
-              {prospects.length > 0 && (
-                <span className={`ml-2 px-2 py-1 rounded-full text-xs ${
-                  activeTab === 'pipeline' ? 'bg-white text-blue-600' : 'bg-blue-100 text-blue-800'
-                }`}>
-                  {prospects.length}
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => setActiveTab('campaigns')}
-              className={`px-6 py-4 font-semibold transition-colors relative whitespace-nowrap ${
-                activeTab === 'campaigns' ? 'bg-blue-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
-              }`}
-            >
-              📧 Campañas
-              {emailSent.length > 0 && (
-                <span className={`ml-2 px-2 py-1 rounded-full text-xs ${
-                  activeTab === 'campaigns' ? 'bg-white text-blue-600' : 'bg-blue-100 text-blue-800'
-                }`}>
-                  {emailSent.length}
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => setActiveTab('reminders')}
-              className={`px-6 py-4 font-semibold transition-colors relative whitespace-nowrap ${
-                activeTab === 'reminders' ? 'bg-blue-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
-              }`}
-            >
-              🔔 Recordatorios
-              {stats.pendingReminders > 0 && (
-                <span className="ml-2 px-2 py-1 rounded-full text-xs bg-red-500 text-white">
-                  {stats.pendingReminders}
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => setActiveTab('history')}
-              className={`px-6 py-4 font-semibold transition-colors relative whitespace-nowrap ${
-                activeTab === 'history' ? 'bg-blue-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
-              }`}
-            >
-              📜 Historial Búsquedas
-              {searchHistory.length > 0 && (
-                <span className={`ml-2 px-2 py-1 rounded-full text-xs ${
-                  activeTab === 'history' ? 'bg-white text-blue-600' : 'bg-blue-100 text-blue-800'
-                }`}>
-                  {searchHistory.length}
-                </span>
-              )}
-            </button>
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 mb-6 overflow-hidden">
+          <div className="flex border-b border-gray-100 overflow-x-auto">
+            {[
+              { id: 'dashboard',  label: 'Dashboard',         icon: '📊', badge: null },
+              { id: 'search',     label: 'Nueva Búsqueda',    icon: '🔍', badge: null },
+              { id: 'pipeline',   label: 'Pipeline',          icon: '🎯', badge: prospects.length || null },
+              { id: 'campaigns',  label: 'Campañas',          icon: '📧', badge: emailSent.length || null },
+              { id: 'reminders',  label: 'Recordatorios',     icon: '🔔', badge: stats.pendingReminders || null, badgeRed: true },
+              { id: 'history',    label: 'Historial',         icon: '📜', badge: searchHistory.length || null },
+            ].map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className="relative px-5 py-4 font-medium text-sm transition-all whitespace-nowrap flex items-center gap-2"
+                style={activeTab === tab.id
+                  ? { color: '#5CB8D1', borderBottom: '2px solid #5CB8D1', marginBottom: '-1px', backgroundColor: '#EFF8FB' }
+                  : { color: '#6B7280', borderBottom: '2px solid transparent', marginBottom: '-1px' }
+                }
+              >
+                <span>{tab.icon}</span>
+                {tab.label}
+                {tab.badge > 0 && (
+                  <span className={`px-1.5 py-0.5 rounded-full text-xs font-bold ${
+                    tab.badgeRed ? 'bg-red-500 text-white' : activeTab === tab.id ? 'text-white' : 'bg-gray-100 text-gray-600'
+                  }`}
+                  style={!tab.badgeRed && activeTab === tab.id ? { backgroundColor: '#5CB8D1' } : {}}>
+                    {tab.badge}
+                  </span>
+                )}
+              </button>
+            ))}
           </div>
 
           {activeTab === 'dashboard' && (
@@ -1133,40 +1079,52 @@ DO NOT return empty arrays. Search until you find real companies.`
               <h2 className="text-2xl font-bold mb-6">Dashboard Ejecutivo</h2>
               
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-                <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg p-6 text-white">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-sm font-semibold opacity-90">Pipeline Value</h3>
-                    <DollarSign className="w-5 h-5 opacity-75" />
+                <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 relative overflow-hidden">
+                  <div className="absolute top-0 left-0 right-0 h-1 rounded-t-xl" style={{ backgroundColor: '#5CB8D1' }} />
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Pipeline Value</h3>
+                    <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: '#EFF8FB' }}>
+                      <DollarSign className="w-4 h-4" style={{ color: '#5CB8D1' }} />
+                    </div>
                   </div>
-                  <p className="text-3xl font-bold">€{Math.round(stats.pipelineValue).toLocaleString()}</p>
-                  <p className="text-xs opacity-75 mt-1">Valor ponderado total</p>
+                  <p className="text-3xl font-bold text-gray-900">€{Math.round(stats.pipelineValue).toLocaleString()}</p>
+                  <p className="text-xs text-gray-400 mt-1">Valor ponderado total</p>
                 </div>
 
-                <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-lg p-6 text-white">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-sm font-semibold opacity-90">Hot Leads</h3>
-                    <Target className="w-5 h-5 opacity-75" />
+                <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 relative overflow-hidden">
+                  <div className="absolute top-0 left-0 right-0 h-1 rounded-t-xl bg-red-400" />
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Hot Leads</h3>
+                    <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-red-50">
+                      <Target className="w-4 h-4 text-red-500" />
+                    </div>
                   </div>
-                  <p className="text-3xl font-bold">{stats.hotLeads}</p>
-                  <p className="text-xs opacity-75 mt-1">Score ≥ 70 puntos</p>
+                  <p className="text-3xl font-bold text-gray-900">{stats.hotLeads}</p>
+                  <p className="text-xs text-gray-400 mt-1">Score ≥ 70 puntos</p>
                 </div>
 
-                <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-lg p-6 text-white">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-sm font-semibold opacity-90">Conversion Rate</h3>
-                    <TrendingUp className="w-5 h-5 opacity-75" />
+                <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 relative overflow-hidden">
+                  <div className="absolute top-0 left-0 right-0 h-1 rounded-t-xl bg-emerald-400" />
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Conversion Rate</h3>
+                    <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-emerald-50">
+                      <TrendingUp className="w-4 h-4 text-emerald-500" />
+                    </div>
                   </div>
-                  <p className="text-3xl font-bold">{stats.conversionRate.toFixed(1)}%</p>
-                  <p className="text-xs opacity-75 mt-1">Contactado → Ganado</p>
+                  <p className="text-3xl font-bold text-gray-900">{stats.conversionRate.toFixed(1)}%</p>
+                  <p className="text-xs text-gray-400 mt-1">Contactado → Ganado</p>
                 </div>
 
-                <div className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-lg p-6 text-white">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-sm font-semibold opacity-90">Revenue</h3>
-                    <Award className="w-5 h-5 opacity-75" />
+                <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 relative overflow-hidden">
+                  <div className="absolute top-0 left-0 right-0 h-1 rounded-t-xl bg-amber-400" />
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Revenue</h3>
+                    <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-amber-50">
+                      <Award className="w-4 h-4 text-amber-500" />
+                    </div>
                   </div>
-                  <p className="text-3xl font-bold">€{Math.round(stats.totalRevenue).toLocaleString()}</p>
-                  <p className="text-xs opacity-75 mt-1">{stats.wonDeals} deals cerrados</p>
+                  <p className="text-3xl font-bold text-gray-900">€{Math.round(stats.totalRevenue).toLocaleString()}</p>
+                  <p className="text-xs text-gray-400 mt-1">{stats.wonDeals} deals cerrados</p>
                 </div>
               </div>
 
@@ -1183,9 +1141,9 @@ DO NOT return empty arrays. Search until you find real companies.`
                               <span className="text-sm text-gray-600">{item.count} leads</span>
                             </div>
                             <div className="w-full bg-gray-200 rounded-full h-2">
-                              <div 
-                                className="bg-blue-500 h-2 rounded-full" 
-                                style={{ width: `${(item.count / stats.totalLeads) * 100}%` }}
+                              <div
+                                className="h-2 rounded-full"
+                                style={{ width: `${(item.count / stats.totalLeads) * 100}%`, backgroundColor: '#5CB8D1' }}
                               />
                             </div>
                           </div>
@@ -1210,9 +1168,9 @@ DO NOT return empty arrays. Search until you find real companies.`
                               <span className="text-sm text-gray-600">{item.count} leads</span>
                             </div>
                             <div className="w-full bg-gray-200 rounded-full h-2">
-                              <div 
-                                className="bg-green-500 h-2 rounded-full" 
-                                style={{ width: `${(item.count / stats.totalLeads) * 100}%` }}
+                              <div
+                                className="h-2 rounded-full"
+                                style={{ width: `${(item.count / stats.totalLeads) * 100}%`, backgroundColor: '#3DA5C0' }}
                               />
                             </div>
                           </div>
@@ -1227,33 +1185,33 @@ DO NOT return empty arrays. Search until you find real companies.`
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-gradient-to-br from-indigo-50 to-indigo-100 rounded-lg p-4">
-                  <div className="flex items-center gap-3">
-                    <Mail className="w-8 h-8 text-indigo-600" />
-                    <div>
-                      <p className="text-sm text-gray-600">Emails esta semana</p>
-                      <p className="text-2xl font-bold text-indigo-600">{stats.emailsThisWeek}</p>
-                    </div>
+                <div className="bg-white border border-gray-100 rounded-xl p-4 flex items-center gap-4 shadow-sm">
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: '#EFF8FB' }}>
+                    <Mail className="w-5 h-5" style={{ color: '#5CB8D1' }} />
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500 font-medium">Emails esta semana</p>
+                    <p className="text-2xl font-bold text-gray-900">{stats.emailsThisWeek}</p>
                   </div>
                 </div>
 
-                <div className="bg-gradient-to-br from-pink-50 to-pink-100 rounded-lg p-4">
-                  <div className="flex items-center gap-3">
-                    <TrendingUp className="w-8 h-8 text-pink-600" />
-                    <div>
-                      <p className="text-sm text-gray-600">Deal promedio</p>
-                      <p className="text-2xl font-bold text-pink-600">€{Math.round(stats.avgDealSize).toLocaleString()}</p>
-                    </div>
+                <div className="bg-white border border-gray-100 rounded-xl p-4 flex items-center gap-4 shadow-sm">
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-emerald-50">
+                    <TrendingUp className="w-5 h-5 text-emerald-500" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500 font-medium">Deal promedio</p>
+                    <p className="text-2xl font-bold text-gray-900">€{Math.round(stats.avgDealSize).toLocaleString()}</p>
                   </div>
                 </div>
 
-                <div className="bg-gradient-to-br from-yellow-50 to-yellow-100 rounded-lg p-4">
-                  <div className="flex items-center gap-3">
-                    <Zap className="w-8 h-8 text-yellow-600" />
-                    <div>
-                      <p className="text-sm text-gray-600">Warm Leads</p>
-                      <p className="text-2xl font-bold text-yellow-600">{stats.warmLeads}</p>
-                    </div>
+                <div className="bg-white border border-gray-100 rounded-xl p-4 flex items-center gap-4 shadow-sm">
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-amber-50">
+                    <Zap className="w-5 h-5 text-amber-500" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500 font-medium">Warm Leads</p>
+                    <p className="text-2xl font-bold text-gray-900">{stats.warmLeads}</p>
                   </div>
                 </div>
               </div>
@@ -1277,11 +1235,12 @@ DO NOT return empty arrays. Search until you find real companies.`
                             : [...prev, country]
                         );
                       }}
-                      className={`px-4 py-2 rounded-lg font-medium transition-all ${
+                      className={`px-4 py-2 rounded-lg font-medium transition-all text-sm ${
                         selectedCountries.find(c => c.code === country.code)
-                          ? 'bg-blue-500 text-white shadow-md'
+                          ? 'text-white shadow-sm'
                           : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                       }`}
+                      style={selectedCountries.find(c => c.code === country.code) ? { backgroundColor: '#5CB8D1' } : {}}
                     >
                       {country.flag} {country.name}
                     </button>
@@ -1351,7 +1310,10 @@ DO NOT return empty arrays. Search until you find real companies.`
               <button
                 onClick={handleSearch}
                 disabled={isSearching || selectedCountries.length === 0 || selectedSectors.length === 0}
-                className="w-full bg-gradient-to-r from-blue-500 to-indigo-600 text-white px-6 py-3 rounded-lg font-semibold hover:from-blue-600 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg"
+                className="w-full text-white px-6 py-3 rounded-xl font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm"
+                style={{ backgroundColor: '#5CB8D1' }}
+                onMouseEnter={e => { if (!e.currentTarget.disabled) e.currentTarget.style.backgroundColor = '#3DA5C0'; }}
+                onMouseLeave={e => { e.currentTarget.style.backgroundColor = '#5CB8D1'; }}
               >
                 {isSearching ? (
                   <span className="flex items-center justify-center">
@@ -1380,7 +1342,8 @@ DO NOT return empty arrays. Search until you find real companies.`
                     <>
                       <button
                         onClick={() => openEmailModal()}
-                        className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center shadow-md"
+                        className="px-4 py-2 text-white rounded-lg transition-colors flex items-center shadow-sm text-sm font-medium"
+                        style={{ backgroundColor: '#5CB8D1' }}
                       >
                         <Send className="w-4 h-4 mr-2" />
                         Enviar Email ({selectedProspects.length})
@@ -1394,20 +1357,28 @@ DO NOT return empty arrays. Search until you find real companies.`
                     </>
                   )}
               <button
+                onClick={exportEmailsOnly}
+                className="px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors flex items-center text-sm font-medium shadow-sm"
+              >
+                <Mail className="w-4 h-4 mr-2 text-gray-400" />
+                Emails
+              </button>
+              <button
                 onClick={exportToCSV}
-                className="px-6 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors flex items-center shadow-md"
+                className="px-4 py-2 text-white rounded-lg transition-colors flex items-center text-sm font-medium shadow-sm"
+                style={{ backgroundColor: '#5CB8D1' }}
               >
                 <Download className="w-4 h-4 mr-2" />
-                Exportar
+                CSV completo
               </button>
             </div>
           </div>
 
           {selectedProspects.length === 0 && filteredProspects.length > 0 && (
-            <div className="mb-4 bg-blue-50 border border-blue-200 rounded-lg p-3">
-              <p className="text-sm text-blue-800">
-                💡 <strong>Tip:</strong> Selecciona leads para campañas masivas
-                <button onClick={selectAllFiltered} className="ml-3 text-blue-600 underline font-semibold">
+            <div className="mb-4 rounded-xl p-3 border text-sm" style={{ backgroundColor: '#EFF8FB', borderColor: '#AEDCEE' }}>
+              <p style={{ color: '#256F83' }}>
+                <strong>Tip:</strong> Selecciona leads para campañas masivas
+                <button onClick={selectAllFiltered} className="ml-3 underline font-semibold" style={{ color: '#2E8BA3' }}>
                   Seleccionar todos ({filteredProspects.length})
                 </button>
               </p>
@@ -1422,7 +1393,7 @@ DO NOT return empty arrays. Search until you find real companies.`
                 placeholder="Empresa, email..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-400 text-sm"
               />
             </div>
 
@@ -1431,7 +1402,7 @@ DO NOT return empty arrays. Search until you find real companies.`
               <select
                 value={filterCountry}
                 onChange={(e) => setFilterCountry(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-400 text-sm"
               >
                 <option value="all">Todos</option>
                 {COUNTRIES.map(c => (
@@ -1445,7 +1416,7 @@ DO NOT return empty arrays. Search until you find real companies.`
               <select
                 value={filterSector}
                 onChange={(e) => setFilterSector(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-400 text-sm"
               >
                 <option value="all">Todos</option>
                 {SECTORS.map(s => (
@@ -1459,7 +1430,7 @@ DO NOT return empty arrays. Search until you find real companies.`
               <select
                 value={filterStatus}
                 onChange={(e) => setFilterStatus(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-400 text-sm"
               >
                 <option value="all">Todas</option>
                 {PIPELINE_STAGES.map(s => (
@@ -1473,7 +1444,7 @@ DO NOT return empty arrays. Search until you find real companies.`
               <select
                 value={sortConfig.key}
                 onChange={(e) => handleSort(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-400 text-sm"
               >
                 <option value="leadScore">Score</option>
                 <option value="dealValue">Valor</option>
@@ -1544,18 +1515,53 @@ DO NOT return empty arrays. Search until you find real companies.`
                             <div className="text-xs text-gray-500">
                               {COUNTRIES.find(c => c.code === prospect.country)?.flag} {prospect.sector}
                             </div>
+                            {prospect.website && (
+                              <a
+                                href={prospect.website}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs truncate max-w-[180px] block hover:underline mt-0.5"
+                                style={{ color: '#5CB8D1' }}
+                              >
+                                <Globe className="w-3 h-3 inline mr-0.5" />
+                                {prospect.website.replace(/^https?:\/\//, '').replace(/\/$/, '')}
+                              </a>
+                            )}
                             {prospect.decisionMaker && (
-                              <div className="text-xs text-blue-600 mt-1">👤 {prospect.decisionMaker}</div>
+                              <div className="text-xs mt-0.5" style={{ color: '#3DA5C0' }}>👤 {prospect.decisionMaker}</div>
                             )}
                           </td>
                           <td className="px-4 py-3">
                             <div className="space-y-1">
-                              <div className="flex items-center text-sm">
-                                <Mail className="w-3 h-3 mr-1 text-gray-400" />
-                                <a href={`mailto:${prospect.email}`} className="text-blue-600 hover:underline">
-                                  {prospect.email}
-                                </a>
-                              </div>
+                              {prospect.email ? (
+                                <div className="flex items-center text-sm">
+                                  <Mail className="w-3 h-3 mr-1 text-gray-400 shrink-0" />
+                                  <a href={`mailto:${prospect.email}`} className="hover:underline truncate max-w-[180px]" style={{ color: '#2E8BA3' }}>
+                                    {prospect.email}
+                                  </a>
+                                </div>
+                              ) : prospect.hasContactForm && prospect.website ? (
+                                <div className="flex items-center gap-1.5">
+                                  <span className="px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800 border border-amber-200">
+                                    Formulario web
+                                  </span>
+                                  <button
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(
+                                        emailTemplates[0]?.body || ''
+                                      ).then(() => showNotification('Texto copiado al portapapeles'));
+                                      window.open(prospect.website, '_blank');
+                                    }}
+                                    className="text-xs underline font-medium"
+                                    style={{ color: '#5CB8D1' }}
+                                    title="Copia el texto y abre la web"
+                                  >
+                                    Abrir web →
+                                  </button>
+                                </div>
+                              ) : (
+                                <span className="text-xs text-gray-400">Sin contacto</span>
+                              )}
                               {prospect.phone && (
                                 <div className="flex items-center text-sm">
                                   <Phone className="w-3 h-3 mr-1 text-gray-400" />
@@ -1617,18 +1623,18 @@ DO NOT return empty arrays. Search until you find real companies.`
             <div className="p-6">
               <h2 className="text-xl font-semibold mb-6">Campañas de Email</h2>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-                <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg p-6">
-                  <h3 className="text-sm font-semibold text-gray-700 mb-2">Total Enviados</h3>
-                  <p className="text-4xl font-bold text-blue-600">{emailSent.length}</p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div className="bg-white border border-gray-100 rounded-xl p-6 shadow-sm">
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Total Enviados</h3>
+                  <p className="text-4xl font-bold text-gray-900">{emailSent.length}</p>
                 </div>
-                <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-6">
-                  <h3 className="text-sm font-semibold text-gray-700 mb-2">Esta Semana</h3>
-                  <p className="text-4xl font-bold text-green-600">{stats.emailsThisWeek}</p>
+                <div className="bg-white border border-gray-100 rounded-xl p-6 shadow-sm">
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Esta Semana</h3>
+                  <p className="text-4xl font-bold text-gray-900">{stats.emailsThisWeek}</p>
                 </div>
-                <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg p-6">
-                  <h3 className="text-sm font-semibold text-gray-700 mb-2">Plantillas</h3>
-                  <p className="text-4xl font-bold text-purple-600">{emailTemplates.length}</p>
+                <div className="bg-white border border-gray-100 rounded-xl p-6 shadow-sm">
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Plantillas</h3>
+                  <p className="text-4xl font-bold text-gray-900">{emailTemplates.length}</p>
                 </div>
               </div>
 
@@ -1637,7 +1643,8 @@ DO NOT return empty arrays. Search until you find real companies.`
                   <h3 className="text-lg font-semibold">📝 Plantillas</h3>
                   <button
                     onClick={() => openTemplateModal()}
-                    className="px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-lg hover:from-green-600 hover:to-emerald-700 transition-all shadow-md flex items-center"
+                    className="px-4 py-2 text-white rounded-lg transition-all shadow-sm flex items-center text-sm font-medium"
+                    style={{ backgroundColor: '#5CB8D1' }}
                   >
                     <Plus className="w-4 h-4 mr-2" />
                     Nueva Plantilla
@@ -1660,7 +1667,8 @@ DO NOT return empty arrays. Search until you find real companies.`
                               openEmailModal(template.id);
                             }
                           }}
-                          className="flex-1 px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors text-sm flex items-center justify-center"
+                          className="flex-1 px-3 py-2 text-white rounded transition-colors text-sm flex items-center justify-center"
+                          style={{ backgroundColor: '#5CB8D1' }}
                         >
                           <Send className="w-3 h-3 mr-1" />
                           Usar
@@ -1899,13 +1907,43 @@ DO NOT return empty arrays. Search until you find real companies.`
                         </div>
                         <div className="flex flex-col gap-2 shrink-0">
                           {record.prospects && record.prospects.length > 0 && (
-                            <button
-                              onClick={() => downloadSearchResults(record)}
-                              className="px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-sm flex items-center gap-1 whitespace-nowrap"
-                            >
-                              <Download className="w-4 h-4" />
-                              Exportar CSV
-                            </button>
+                            <>
+                              <button
+                                onClick={() => downloadSearchResults(record)}
+                                className="px-3 py-2 text-white rounded-lg transition-colors text-sm flex items-center gap-1 whitespace-nowrap"
+                                style={{ backgroundColor: '#5CB8D1' }}
+                              >
+                                <Download className="w-4 h-4" />
+                                Exportar CSV
+                              </button>
+                              <button
+                                onClick={() => {
+                                  const emails = record.prospects
+                                    .filter(p => p.email && !isBlockedEmail(p.email))
+                                    .map(p => p.email);
+                                  if (emails.length === 0) {
+                                    showNotification('No hay emails en esta búsqueda', 'error');
+                                    return;
+                                  }
+                                  const blob = new Blob([emails.join('\n')], { type: 'text/plain;charset=utf-8;' });
+                                  const url = URL.createObjectURL(blob);
+                                  const a = document.createElement('a');
+                                  a.href = url;
+                                  const dateStr = new Date(record.startTime).toISOString().split('T')[0];
+                                  const countriesStr = (record.countries || []).join('-');
+                                  a.download = `emails_${countriesStr}_${dateStr}.txt`;
+                                  document.body.appendChild(a);
+                                  a.click();
+                                  document.body.removeChild(a);
+                                  URL.revokeObjectURL(url);
+                                  showNotification(`✅ ${emails.length} emails exportados`);
+                                }}
+                                className="px-3 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm flex items-center gap-1 whitespace-nowrap"
+                              >
+                                <Mail className="w-4 h-4 text-gray-400" />
+                                Solo emails
+                              </button>
+                            </>
                           )}
                           <button
                             onClick={() => deleteSearchHistory(record.id)}
@@ -1927,14 +1965,14 @@ DO NOT return empty arrays. Search until you find real companies.`
         {showEmailModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
-              <div className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white p-6">
+              <div className="text-white p-6" style={{ backgroundColor: '#5CB8D1' }}>
                 <div className="flex justify-between items-center">
                   <div>
-                    <h2 className="text-2xl font-bold">Enviar Email</h2>
-                    <p className="text-blue-100 mt-1">{selectedProspects.length} destinatario(s)</p>
+                    <h2 className="text-xl font-bold">Enviar Email</h2>
+                    <p className="text-white text-opacity-80 mt-0.5 text-sm">{selectedProspects.length} destinatario(s)</p>
                   </div>
-                  <button onClick={closeEmailModal} className="text-white hover:bg-white hover:bg-opacity-20 p-2 rounded-lg">
-                    <X className="w-6 h-6" />
+                  <button onClick={closeEmailModal} className="p-2 rounded-lg hover:bg-white hover:bg-opacity-20 transition-colors">
+                    <X className="w-5 h-5" />
                   </button>
                 </div>
               </div>
@@ -1968,7 +2006,7 @@ DO NOT return empty arrays. Search until you find real companies.`
                     value={emailSubject}
                     onChange={(e) => setEmailSubject(e.target.value)}
                     placeholder="Asunto del email"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-400"
                   />
                 </div>
 
@@ -1978,7 +2016,7 @@ DO NOT return empty arrays. Search until you find real companies.`
                     value={emailBody}
                     onChange={(e) => setEmailBody(e.target.value)}
                     rows={12}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-mono text-sm"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-400 font-mono text-sm"
                     placeholder="Contenido del email"
                   />
                 </div>
@@ -1995,7 +2033,8 @@ DO NOT return empty arrays. Search until you find real companies.`
                   <button
                     onClick={sendEmails}
                     disabled={!emailSubject || !emailBody}
-                    className="px-6 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-lg hover:from-blue-600 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                    className="px-6 py-2 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center font-medium transition-colors"
+                    style={{ backgroundColor: '#5CB8D1' }}
                   >
                     <Send className="w-4 h-4 mr-2" />
                     Enviar
@@ -2009,13 +2048,13 @@ DO NOT return empty arrays. Search until you find real companies.`
         {showTemplateModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-hidden">
-              <div className="bg-gradient-to-r from-green-500 to-emerald-600 text-white p-6">
+              <div className="text-white p-6" style={{ backgroundColor: '#5CB8D1' }}>
                 <div className="flex justify-between items-center">
-                  <h2 className="text-2xl font-bold">
+                  <h2 className="text-xl font-bold">
                     {editingTemplate ? 'Editar Plantilla' : 'Nueva Plantilla'}
                   </h2>
-                  <button onClick={closeTemplateModal} className="text-white hover:bg-white hover:bg-opacity-20 p-2 rounded-lg">
-                    <X className="w-6 h-6" />
+                  <button onClick={closeTemplateModal} className="p-2 rounded-lg hover:bg-white hover:bg-opacity-20 transition-colors">
+                    <X className="w-5 h-5" />
                   </button>
                 </div>
               </div>
@@ -2028,7 +2067,7 @@ DO NOT return empty arrays. Search until you find real companies.`
                     value={newTemplateName}
                     onChange={(e) => setNewTemplateName(e.target.value)}
                     placeholder="Nombre de la plantilla"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-400"
                   />
                 </div>
 
@@ -2039,7 +2078,7 @@ DO NOT return empty arrays. Search until you find real companies.`
                     value={newTemplateSubject}
                     onChange={(e) => setNewTemplateSubject(e.target.value)}
                     placeholder="Asunto del email"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-400"
                   />
                 </div>
 
@@ -2049,7 +2088,7 @@ DO NOT return empty arrays. Search until you find real companies.`
                     value={newTemplateBody}
                     onChange={(e) => setNewTemplateBody(e.target.value)}
                     rows={14}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 font-mono text-sm"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-400 font-mono text-sm"
                     placeholder="Contenido de la plantilla"
                   />
                 </div>
@@ -2066,7 +2105,8 @@ DO NOT return empty arrays. Search until you find real companies.`
                   <button
                     onClick={saveTemplate}
                     disabled={!newTemplateName || !newTemplateSubject || !newTemplateBody}
-                    className="px-6 py-2 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-lg hover:from-green-600 hover:to-emerald-700 disabled:opacity-50 flex items-center"
+                    className="px-6 py-2 text-white rounded-lg disabled:opacity-50 flex items-center font-medium transition-colors"
+                    style={{ backgroundColor: '#5CB8D1' }}
                   >
                     <Plus className="w-4 h-4 mr-2" />
                     {editingTemplate ? 'Actualizar' : 'Crear'}
@@ -2080,11 +2120,11 @@ DO NOT return empty arrays. Search until you find real companies.`
         {showProspectModal && editingProspect && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden">
-              <div className="bg-gradient-to-r from-purple-500 to-pink-600 text-white p-6">
+              <div className="text-white p-6" style={{ backgroundColor: '#5CB8D1' }}>
                 <div className="flex justify-between items-center">
-                  <h2 className="text-2xl font-bold">Editar Lead</h2>
-                  <button onClick={closeProspectModal} className="text-white hover:bg-white hover:bg-opacity-20 p-2 rounded-lg">
-                    <X className="w-6 h-6" />
+                  <h2 className="text-xl font-bold">Editar Lead</h2>
+                  <button onClick={closeProspectModal} className="p-2 rounded-lg hover:bg-white hover:bg-opacity-20 transition-colors">
+                    <X className="w-5 h-5" />
                   </button>
                 </div>
               </div>
@@ -2097,7 +2137,7 @@ DO NOT return empty arrays. Search until you find real companies.`
                       type="number"
                       value={editingProspect.dealValue}
                       onChange={(e) => setEditingProspect({...editingProspect, dealValue: parseInt(e.target.value) || 0})}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-400"
                     />
                   </div>
 
@@ -2106,7 +2146,7 @@ DO NOT return empty arrays. Search until you find real companies.`
                     <select
                       value={editingProspect.eventsPerYear}
                       onChange={(e) => setEditingProspect({...editingProspect, eventsPerYear: e.target.value})}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-400"
                     >
                       <option value="1">1</option>
                       <option value="2-5">2-5</option>
@@ -2121,7 +2161,7 @@ DO NOT return empty arrays. Search until you find real companies.`
                   <select
                     value={editingProspect.companySize}
                     onChange={(e) => setEditingProspect({...editingProspect, companySize: e.target.value})}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-400"
                   >
                     <option value="small">Pequeña (1-50)</option>
                     <option value="medium">Mediana (51-250)</option>
@@ -2135,13 +2175,13 @@ DO NOT return empty arrays. Search until you find real companies.`
                     value={editingProspect.notes}
                     onChange={(e) => setEditingProspect({...editingProspect, notes: e.target.value})}
                     rows={4}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-400"
                     placeholder="Notas internas..."
                   />
                 </div>
 
-                <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-                  <h4 className="font-semibold text-purple-800 mb-2">Datos Enriquecidos</h4>
+                <div className="rounded-xl p-4 border" style={{ backgroundColor: '#EFF8FB', borderColor: '#AEDCEE' }}>
+                  <h4 className="font-semibold mb-2" style={{ color: '#256F83' }}>Datos Enriquecidos</h4>
                   {editingProspect.decisionMaker && (
                     <p className="text-sm text-gray-700 mb-1">👤 <strong>Decision Maker:</strong> {editingProspect.decisionMaker}</p>
                   )}
@@ -2168,7 +2208,8 @@ DO NOT return empty arrays. Search until you find real companies.`
                       closeProspectModal();
                       showNotification('Lead actualizado correctamente');
                     }}
-                    className="px-6 py-2 bg-gradient-to-r from-purple-500 to-pink-600 text-white rounded-lg hover:from-purple-600 hover:to-pink-700"
+                    className="px-6 py-2 text-white rounded-lg font-medium transition-colors"
+                    style={{ backgroundColor: '#5CB8D1' }}
                   >
                     Guardar Cambios
                   </button>
@@ -2178,8 +2219,8 @@ DO NOT return empty arrays. Search until you find real companies.`
           </div>
         )}
 
-        <div className="mt-6 text-center text-sm text-gray-500">
-          <p>🔒 CRM B2B Profesional - Datos en localStorage</p>
+        <div className="mt-6 text-center text-xs text-gray-400">
+          <p>Unical Graphic · CRM B2B Profesional</p>
         </div>
       </div>
     </div>

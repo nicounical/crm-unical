@@ -4,5 +4,13 @@
       "path": "/api/cron-search",
       "schedule": "0 8 * * *"
     }
-  ]
+  ],
+  "functions": {
+    "api/search.js": {
+      "maxDuration": 60
+    },
+    "api/cron-search.js": {
+      "maxDuration": 60
+    }
+  }
 }
